@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"time"
 
 	"github.com/Gaurav-Gosain/tuios/internal/hints"
@@ -86,6 +87,11 @@ type Settings struct {
 	// MaxFPSAuto is set when appearance.max_fps is "auto": NormalFPS then
 	// follows DisplayFPS.
 	MaxFPSAuto bool
+
+	// CellFrames is appearance.cell_frames: which clients write their frames
+	// as diffed cells rather than through Bubble Tea's renderer. See
+	// CellFramesFor.
+	CellFrames string
 
 	// DisplayFPS is the refresh rate the client found for this machine's
 	// displays, or 0 before it has looked or when it cannot tell. It is not
@@ -1175,3 +1181,34 @@ func (s *Settings) GetNestExitKey() string {
 // Read it directly only where there is no session in reach: an entrypoint doing
 // startup, or a harness with no OS.
 var Global = DefaultSettings()
+
+// The values of appearance.cell_frames.
+const (
+	CellFramesServed = "served"
+	CellFramesAll    = "all"
+	CellFramesOff    = "off"
+)
+
+// CellFrameModes are the accepted values of appearance.cell_frames.
+var CellFrameModes = []string{CellFramesServed, CellFramesAll, CellFramesOff}
+
+// CellFramesFor reports whether a client writes its frames as diffed cells:
+// a served one (SSH, web, the browser build) or this terminal's. The
+// environment's TUIOS_CELL_FRAME, 1 or 0, overrides the option; an empty or
+// unknown value reads as served.
+func (s *Settings) CellFramesFor(served bool) bool {
+	mode := s.CellFrames
+	switch os.Getenv("TUIOS_CELL_FRAME") {
+	case "1":
+		mode = CellFramesAll
+	case "0":
+		mode = CellFramesOff
+	}
+	switch mode {
+	case CellFramesAll:
+		return true
+	case CellFramesOff:
+		return false
+	}
+	return served
+}
