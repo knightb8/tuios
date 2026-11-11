@@ -368,7 +368,7 @@ func handleBrowserOutputModeKey(msg tea.KeyPressMsg, keyStr string, browser *scr
 
 	// Jump
 	case "g":
-		if vim.PendingG && time.Since(vim.LastGTime) < 500*time.Millisecond {
+		if vim.PendingG && time.Since(vim.LastGTime) < o.Settings.ChordTimeout() {
 			vim.MoveToTop()
 			vim.PendingG = false
 		} else {

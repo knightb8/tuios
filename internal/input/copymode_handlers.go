@@ -332,7 +332,7 @@ func handleNormalInput(msg tea.KeyPressMsg, cm *terminal.CopyMode, grid terminal
 	// Navigation: jump to top/bottom
 	case "g":
 		// Handle 'gg' sequence
-		if pendingG && time.Since(cm.LastCommandTime) < 500*time.Millisecond {
+		if pendingG && time.Since(cm.LastCommandTime) < s.ChordTimeout() {
 			moveToTop(cm, grid)
 		} else {
 			cm.PendingGCount = true
@@ -716,7 +716,7 @@ func handleVisualInput(msg tea.KeyPressMsg, cm *terminal.CopyMode, grid terminal
 	case "g":
 		// Detect the 'gg' sequence. Keys arrive singly, so a literal "gg" case
 		// never matches; mirror the pending-g state used in normal mode.
-		if pendingG && time.Since(cm.LastCommandTime) < 500*time.Millisecond {
+		if pendingG && time.Since(cm.LastCommandTime) < s.ChordTimeout() {
 			moveToTop(cm, grid)
 			updateVisualEnd(cm, grid)
 		} else {
