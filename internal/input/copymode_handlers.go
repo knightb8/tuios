@@ -492,7 +492,7 @@ func handleSearchInput(msg tea.KeyPressMsg, cm *terminal.CopyMode, grid terminal
 	if textedit.IsWordDeleteKey(msg.String()) {
 		if cm.SearchQuery != "" {
 			cm.SearchQuery = textedit.DropLastWord(cm.SearchQuery)
-			executeSearch(cm, grid)
+			executeSearch(cm, grid, s.SearchMaxMatches)
 		}
 		fx.ShowNotification(searchPrefix+cm.SearchQuery, "info", 0)
 		fx.InvalidateCache()
@@ -504,7 +504,7 @@ func handleSearchInput(msg tea.KeyPressMsg, cm *terminal.CopyMode, grid terminal
 		cm.State = terminal.CopyModeNormal
 		matchInfo := ""
 		if len(cm.SearchMatches) > 0 {
-			matchInfo = fmt.Sprintf(" (%s matches)", terminal.SearchMatchCount(len(cm.SearchMatches)))
+			matchInfo = fmt.Sprintf(" (%s matches)", terminal.SearchMatchCount(len(cm.SearchMatches), s.SearchMaxMatches))
 		}
 		fx.ShowNotification(fmt.Sprintf("%s%s%s", searchPrefix, cm.SearchQuery, matchInfo), "info", s.NotificationDuration)
 	case tea.KeyEscape:
@@ -519,13 +519,13 @@ func handleSearchInput(msg tea.KeyPressMsg, cm *terminal.CopyMode, grid terminal
 		if len(cm.SearchQuery) > 0 {
 			_, size := utf8.DecodeLastRuneInString(cm.SearchQuery)
 			cm.SearchQuery = cm.SearchQuery[:len(cm.SearchQuery)-size]
-			executeSearch(cm, grid)
+			executeSearch(cm, grid, s.SearchMaxMatches)
 		}
 		fx.ShowNotification(searchPrefix+cm.SearchQuery, "info", 0)
 	default:
 		if key.Text != "" {
 			cm.SearchQuery += key.Text
-			executeSearch(cm, grid)
+			executeSearch(cm, grid, s.SearchMaxMatches)
 			fx.ShowNotification(searchPrefix+cm.SearchQuery, "info", 0)
 		}
 	}
