@@ -50,11 +50,14 @@ const (
 	// NavigatorLayoutCards is every pane on two rows: the name and the
 	// command, then the session, the workspace and the folder.
 	NavigatorLayoutCards = "cards"
+	// NavigatorLayoutCommander is a dual-panel tree layout for moving and managing
+	// sessions, workspaces and panes.
+	NavigatorLayoutCommander = "commander"
 )
 
 // NavigatorLayouts is the accepted navigator_layout values, in the order the
 // v key steps through them.
-var NavigatorLayouts = []string{NavigatorLayoutTree, NavigatorLayoutFlat, NavigatorLayoutCards}
+var NavigatorLayouts = []string{NavigatorLayoutTree, NavigatorLayoutFlat, NavigatorLayoutCards, NavigatorLayoutCommander}
 
 // NavigatorLayoutInUse is the effective navigator layout. An unknown value
 // is the tree.

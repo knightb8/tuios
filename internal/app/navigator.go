@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -219,12 +220,24 @@ type navigatorState struct {
 	// (panes.navigator_search). esc with nothing typed then closes it, as
 	// esc in the list does.
 	typeFirst bool
+
+	// Commander dual-panel state.
+	activeSide int           // 0 = Left, 1 = Right
+	rightList  listnav.State // independent cursor and scroll for right panel
+	cmdNotice  string        // feedback status message
+	cmdPrompt  string        // prompt mode, e.g. "new"
 }
 
 // NavigatorLoadedMsg is the answer of a detail load.
 type NavigatorLoadedMsg struct {
 	Gen      uint64
 	Sessions []navSession
+}
+
+// NavigatorCmdDoneMsg reports the result of a commander action (move, new, close).
+type NavigatorCmdDoneMsg struct {
+	Notice string
+	Err    error
 }
 
 // NavigatorOpen reports whether the navigator is up.
@@ -258,6 +271,7 @@ func (m *OS) OpenNavigator() tea.Cmd {
 		typeFirst: typeFirst,
 	}
 	m.navigatorCursorToCurrent()
+	m.navigator.rightList = m.navigator.list
 	m.MarkAllDirty()
 	if m.DaemonClient == nil {
 		return nil
@@ -289,6 +303,9 @@ func (m *OS) NavigatorCycleLayout() {
 	nav.layout = config.NavigatorLayouts[(i+1)%len(config.NavigatorLayouts)]
 	m.navLayoutPick = nav.layout
 	nav.list.Cursor, nav.list.Scroll = 0, 0
+	if nav.layout == config.NavigatorLayoutCommander && nav.rightList.Cursor == 0 {
+		nav.rightList = nav.list
+	}
 	switch {
 	case had && m.navigatorHasKey(before):
 		m.navigatorSelectKey(before)
@@ -298,6 +315,76 @@ func (m *OS) NavigatorCycleLayout() {
 	m.MarkAllDirty()
 }
 
+// NavigatorLayout is the layout the list is drawn in.
+func (m *OS) NavigatorLayout() string { return m.navigator.layout }
+
+// NavigatorCommander reports whether the navigator is in dual-panel commander mode.
+func (m *OS) NavigatorCommander() bool { return m.navCommander() }
+
+// navCommander reports whether the navigator is in dual-panel commander mode.
+func (m *OS) navCommander() bool {
+	return m.navigator.layout == config.NavigatorLayoutCommander
+}
+
+// NavigatorToggleCommander toggles commander layout on and off.
+func (m *OS) NavigatorToggleCommander() {
+	nav := &m.navigator
+	if m.navCommander() {
+		nav.layout = config.NavigatorLayoutTree
+	} else {
+		nav.layout = config.NavigatorLayoutCommander
+		if nav.rightList.Cursor == 0 && nav.list.Cursor != 0 {
+			nav.rightList = nav.list
+		}
+	}
+	m.navLayoutPick = nav.layout
+	m.MarkAllDirty()
+}
+
+// NavigatorActiveSide reports the active panel in commander mode: 0 for Left, 1 for Right.
+func (m *OS) NavigatorActiveSide() int { return m.navigator.activeSide }
+
+// NavigatorSwitchSide toggles the active panel between Left and Right.
+func (m *OS) NavigatorSwitchSide() {
+	if !m.navCommander() {
+		return
+	}
+	m.navigator.activeSide = 1 - m.navigator.activeSide
+	m.MarkAllDirty()
+}
+
+// navActiveList returns the listnav.State of the active panel.
+func (m *OS) navActiveList() *listnav.State {
+	if m.navCommander() && m.navigator.activeSide == 1 {
+		return &m.navigator.rightList
+	}
+	return &m.navigator.list
+}
+
+// navOtherList returns the listnav.State of the opposite panel.
+func (m *OS) navOtherList() *listnav.State {
+	if m.navCommander() && m.navigator.activeSide == 0 {
+		return &m.navigator.rightList
+	}
+	return &m.navigator.list
+}
+
+// NavigatorCmdNotice returns the current commander feedback notice.
+func (m *OS) NavigatorCmdNotice() string { return m.navigator.cmdNotice }
+
+// NavigatorCmdPrompt returns the current commander prompt mode.
+func (m *OS) NavigatorCmdPrompt() string { return m.navigator.cmdPrompt }
+
+// NavigatorSetCmdPrompt sets the prompt mode ("new" or "").
+func (m *OS) NavigatorSetCmdPrompt(prompt string) {
+	m.navigator.cmdPrompt = prompt
+	if prompt == "new" {
+		m.navigator.cmdNotice = "Create: [s] Session  [w] Workspace  [p] Pane  (esc cancel)"
+	} else if prompt == "" && m.navigator.cmdNotice == "Create: [s] Session  [w] Workspace  [p] Pane  (esc cancel)" {
+		m.navigator.cmdNotice = ""
+	}
+	m.MarkAllDirty()
+}
 // navFlat reports whether the list is a list of panes rather than a tree:
 // a search is in force, or the layout is flat or cards. A flat list has no
 // folds.
@@ -830,10 +917,11 @@ func (m *OS) navRowKey(r navRow) string {
 // navigatorSelectedKey is the key of the row under the cursor.
 func (m *OS) navigatorSelectedKey() (string, bool) {
 	rows := m.navigatorRows()
-	if m.navigator.list.Cursor < 0 || m.navigator.list.Cursor >= len(rows) {
+	l := m.navActiveList()
+	if l.Cursor < 0 || l.Cursor >= len(rows) {
 		return "", false
 	}
-	return m.navRowKey(rows[m.navigator.list.Cursor]), true
+	return m.navRowKey(rows[l.Cursor]), true
 }
 
 // navigatorHasKey reports whether a row with key is listed.
@@ -850,7 +938,7 @@ func (m *OS) navigatorHasKey(key string) bool {
 func (m *OS) navigatorSelectKey(key string) {
 	for i, r := range m.navigatorRows() {
 		if m.navRowKey(r) == key {
-			m.navigator.list.Cursor = i
+			m.navActiveList().Cursor = i
 			return
 		}
 	}
@@ -1006,14 +1094,15 @@ func (m *OS) NavigatorMove(delta int) {
 	if n == 0 {
 		return
 	}
-	m.navigator.list.Move(delta, n, m.navigatorVisibleRows(), m.listWraps(), nil)
+	l := m.navActiveList()
+	l.Move(delta, n, m.navigatorVisibleRows(), m.listWraps(), nil)
 	m.MarkAllDirty()
 }
 
 // NavigatorSelect puts the cursor on row i.
 func (m *OS) NavigatorSelect(i int) {
 	if i >= 0 && i < m.NavigatorRowCount() {
-		m.navigator.list.Cursor = i
+		m.navActiveList().Cursor = i
 		m.MarkAllDirty()
 	}
 }
@@ -1026,10 +1115,11 @@ func (m *OS) NavigatorFold(open bool) {
 		return
 	}
 	rows := m.navigatorRows()
-	if m.navigator.list.Cursor < 0 || m.navigator.list.Cursor >= len(rows) {
+	l := m.navActiveList()
+	if l.Cursor < 0 || l.Cursor >= len(rows) {
 		return
 	}
-	r := rows[m.navigator.list.Cursor]
+	r := rows[l.Cursor]
 	s := &m.navigator.sessions[r.Session]
 	key := m.navRowKey(r)
 	switch r.Kind {
@@ -1052,10 +1142,11 @@ func (m *OS) NavigatorFold(open bool) {
 // NavigatorToggle opens a shut row and shuts an open one.
 func (m *OS) NavigatorToggle() {
 	rows := m.navigatorRows()
-	if m.navFlat() || m.navigator.list.Cursor < 0 || m.navigator.list.Cursor >= len(rows) {
+	l := m.navActiveList()
+	if m.navFlat() || l.Cursor < 0 || l.Cursor >= len(rows) {
 		return
 	}
-	r := rows[m.navigator.list.Cursor]
+	r := rows[l.Cursor]
 	if r.Kind == navRowPane {
 		return
 	}
@@ -1154,5 +1245,309 @@ func (m *OS) NavigatorClickFolds(i int) bool {
 	return true
 }
 
-// NavigatorActivateSelected goes to the row under the cursor.
-func (m *OS) NavigatorActivateSelected() { m.NavigatorActivate(m.navigator.list.Cursor) }
+// NavigatorActivateSelected goes to the row under the cursor in the active panel.
+func (m *OS) NavigatorActivateSelected() { m.NavigatorActivate(m.navActiveList().Cursor) }
+
+// NavigatorMoveItem moves the selected pane or workspace from the active panel
+// to the target location highlighted in the other panel.
+func (m *OS) NavigatorMoveItem() tea.Cmd {
+	if !m.navCommander() {
+		return nil
+	}
+	rows := m.navigatorRows()
+	activeL := m.navActiveList()
+	otherL := m.navOtherList()
+	if activeL.Cursor < 0 || activeL.Cursor >= len(rows) || otherL.Cursor < 0 || otherL.Cursor >= len(rows) {
+		return nil
+	}
+	srcRow := rows[activeL.Cursor]
+	dstRow := rows[otherL.Cursor]
+
+	if srcRow.Kind == navRowSession {
+		m.navigator.cmdNotice = "Cannot move a whole session"
+		m.MarkAllDirty()
+		return nil
+	}
+
+	srcSess := m.navigator.sessions[srcRow.Session]
+	dstSess := m.navigator.sessions[dstRow.Session]
+
+	dstWorkspace := 1
+	switch dstRow.Kind {
+	case navRowPane:
+		dstWorkspace = dstSess.Panes[dstRow.Pane].Workspace
+	case navRowWorkspace:
+		dstWorkspace = dstRow.Workspace
+	case navRowSession:
+		if len(dstSess.Panes) > 0 {
+			dstWorkspace = dstSess.Panes[0].Workspace
+		} else {
+			dstWorkspace = 1
+		}
+	}
+
+	if srcRow.Kind == navRowPane {
+		srcPane := srcSess.Panes[srcRow.Pane]
+		if srcSess.Name == dstSess.Name && srcPane.Workspace == dstWorkspace {
+			m.navigator.cmdNotice = "Pane is already in this workspace"
+			m.MarkAllDirty()
+			return nil
+		}
+
+		windowID := srcPane.ID
+		fromSess := srcSess.Name
+		toSess := dstSess.Name
+		host := srcSess.Host
+		build := ""
+		if m.DaemonClient != nil {
+			build = m.DaemonClient.ClientVersion()
+		}
+
+		m.navigator.cmdNotice = fmt.Sprintf("Moving '%s' to %s (w%d)…", srcPane.Title, toSess, dstWorkspace)
+		m.MarkAllDirty()
+
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			params := map[string]any{
+				"session":   fromSess,
+				"window":    windowID,
+				"workspace": dstWorkspace,
+			}
+			if fromSess != toSess {
+				params["to_session"] = toSess
+			}
+			_, err = c.Call("move-window", params)
+			notice := fmt.Sprintf("Moved '%s' to %s (w%d)", srcPane.Title, toSess, dstWorkspace)
+			if err != nil {
+				notice = fmt.Sprintf("Move failed: %v", err)
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	}
+
+	if srcRow.Kind == navRowWorkspace {
+		srcWs := srcRow.Workspace
+		var panesToMove []string
+		for _, p := range srcSess.Panes {
+			if p.Workspace == srcWs {
+				panesToMove = append(panesToMove, p.ID)
+			}
+		}
+		if len(panesToMove) == 0 {
+			m.navigator.cmdNotice = "Workspace has no panes to move"
+			m.MarkAllDirty()
+			return nil
+		}
+		fromSess := srcSess.Name
+		toSess := dstSess.Name
+		host := srcSess.Host
+		build := ""
+		if m.DaemonClient != nil {
+			build = m.DaemonClient.ClientVersion()
+		}
+		m.navigator.cmdNotice = fmt.Sprintf("Moving %d pane(s) from w%d to %s (w%d)…", len(panesToMove), srcWs, toSess, dstWorkspace)
+		m.MarkAllDirty()
+
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			for _, pid := range panesToMove {
+				params := map[string]any{
+					"session":   fromSess,
+					"window":    pid,
+					"workspace": dstWorkspace,
+				}
+				if fromSess != toSess {
+					params["to_session"] = toSess
+				}
+				if _, err := c.Call("move-window", params); err != nil {
+					return NavigatorCmdDoneMsg{Notice: fmt.Sprintf("Move failed: %v", err), Err: err}
+				}
+			}
+			return NavigatorCmdDoneMsg{
+				Notice: fmt.Sprintf("Moved %d pane(s) to %s (w%d)", len(panesToMove), toSess, dstWorkspace),
+			}
+		}
+	}
+	return nil
+}
+
+// NavigatorCloseItem closes/kills the selected pane or session in commander mode.
+func (m *OS) NavigatorCloseItem() tea.Cmd {
+	if !m.navCommander() {
+		return nil
+	}
+	rows := m.navigatorRows()
+	l := m.navActiveList()
+	if l.Cursor < 0 || l.Cursor >= len(rows) {
+		return nil
+	}
+	r := rows[l.Cursor]
+	sess := m.navigator.sessions[r.Session]
+	host := sess.Host
+	build := ""
+	if m.DaemonClient != nil {
+		build = m.DaemonClient.ClientVersion()
+	}
+
+	switch r.Kind {
+	case navRowPane:
+		p := sess.Panes[r.Pane]
+		m.navigator.cmdNotice = fmt.Sprintf("Closing pane '%s'…", p.Title)
+		m.MarkAllDirty()
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			_, err = c.Call("close-window", map[string]any{
+				"session": sess.Name,
+				"window":  p.ID,
+			})
+			notice := fmt.Sprintf("Closed pane '%s'", p.Title)
+			if err != nil {
+				notice = fmt.Sprintf("Close failed: %v", err)
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	case navRowSession:
+		if sess.Current {
+			m.navigator.cmdNotice = "Cannot close the attached session from Commander"
+			m.MarkAllDirty()
+			return nil
+		}
+		m.navigator.cmdNotice = fmt.Sprintf("Closing session '%s'…", sess.Name)
+		m.MarkAllDirty()
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			_, err = c.Call("kill-session", map[string]any{
+				"session": sess.Name,
+			})
+			notice := fmt.Sprintf("Closed session '%s'", sess.Name)
+			if err != nil {
+				notice = fmt.Sprintf("Close failed: %v", err)
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	}
+	return nil
+}
+
+// NavigatorNewItem creates a new session ("s"), workspace ("w"), or pane ("p").
+func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
+	rows := m.navigatorRows()
+	l := m.navActiveList()
+	var sess navSession
+	var ws int = 1
+	if l.Cursor >= 0 && l.Cursor < len(rows) {
+		r := rows[l.Cursor]
+		sess = m.navigator.sessions[r.Session]
+		switch r.Kind {
+		case navRowWorkspace:
+			ws = r.Workspace
+		case navRowPane:
+			ws = sess.Panes[r.Pane].Workspace
+		case navRowSession:
+			if len(sess.Panes) > 0 {
+				ws = sess.Panes[0].Workspace
+			} else {
+				ws = 1
+			}
+		}
+	} else if len(m.navigator.sessions) > 0 {
+		sess = m.navigator.sessions[0]
+	}
+
+	host := sess.Host
+	build := ""
+	if m.DaemonClient != nil {
+		build = m.DaemonClient.ClientVersion()
+	}
+
+	m.navigator.cmdPrompt = ""
+
+	switch kind {
+	case "s":
+		m.navigator.cmdNotice = "Creating new session…"
+		m.MarkAllDirty()
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			raw, err := c.Call("new-session", map[string]any{})
+			notice := "Created new session"
+			if err != nil {
+				notice = fmt.Sprintf("Failed to create session: %v", err)
+			} else {
+				var res struct {
+					Name string `json:"name"`
+				}
+				_ = jsonx.Unmarshal(raw, &res)
+				if res.Name != "" {
+					notice = fmt.Sprintf("Created session '%s'", res.Name)
+				}
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	case "w":
+		maxWs := 0
+		for _, p := range sess.Panes {
+			if p.Workspace > maxWs {
+				maxWs = p.Workspace
+			}
+		}
+		newWs := maxWs + 1
+		m.navigator.cmdNotice = fmt.Sprintf("Creating workspace %d in '%s'…", newWs, sess.Name)
+		m.MarkAllDirty()
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			_, err = c.Call("new-window", map[string]any{
+				"session":   sess.Name,
+				"workspace": newWs,
+			})
+			notice := fmt.Sprintf("Created workspace %d in '%s'", newWs, sess.Name)
+			if err != nil {
+				notice = fmt.Sprintf("Failed to create workspace: %v", err)
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	case "p":
+		m.navigator.cmdNotice = fmt.Sprintf("Creating pane in '%s' (w%d)…", sess.Name, ws)
+		m.MarkAllDirty()
+		return func() tea.Msg {
+			c, err := dialSessionDaemon(host, build)
+			if err != nil {
+				return NavigatorCmdDoneMsg{Err: err}
+			}
+			defer func() { _ = c.Close() }()
+			_, err = c.Call("new-window", map[string]any{
+				"session":   sess.Name,
+				"workspace": ws,
+			})
+			notice := fmt.Sprintf("Created pane in '%s' (w%d)", sess.Name, ws)
+			if err != nil {
+				notice = fmt.Sprintf("Failed to create pane: %v", err)
+			}
+			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+		}
+	}
+	return nil
+}

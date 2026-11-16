@@ -30,6 +30,17 @@ func handleChooseTree(_ tea.KeyPressMsg, o *app.OS) (*app.OS, tea.Cmd) {
 // nothing typed, as the list does.
 func handleNavigatorInput(msg tea.KeyPressMsg, o *app.OS) (*app.OS, tea.Cmd) {
 	key := msg.String()
+	if o.NavigatorCmdPrompt() == "new" {
+		switch key {
+		case "s", "w", "p":
+			return o, o.NavigatorNewItem(key)
+		case "esc", "q":
+			o.NavigatorSetCmdPrompt("")
+			return o, nil
+		}
+		return o, nil
+	}
+
 	if o.NavigatorSearching() {
 		if listKey(o, key, false, listPage, o.NavigatorMove) {
 			return o, nil
@@ -75,6 +86,24 @@ func handleNavigatorInput(msg tea.KeyPressMsg, o *app.OS) (*app.OS, tea.Cmd) {
 		o.NavigatorToggle()
 	case "v":
 		o.NavigatorCycleLayout()
+	case "c":
+		o.NavigatorToggleCommander()
+	case "tab":
+		if o.NavigatorCommander() {
+			o.NavigatorSwitchSide()
+		}
+	case "m", "f6":
+		if o.NavigatorCommander() {
+			return o, o.NavigatorMoveItem()
+		}
+	case "n", "f7":
+		if o.NavigatorCommander() {
+			o.NavigatorSetCmdPrompt("new")
+		}
+	case "d", "x", "f8":
+		if o.NavigatorCommander() {
+			return o, o.NavigatorCloseItem()
+		}
 	}
 	return o, nil
 }

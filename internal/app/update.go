@@ -2827,6 +2827,15 @@ func (m *OS) handleMsg(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 		m.ApplyNavigatorLoaded(msg)
 		return m, nil
 
+	case NavigatorCmdDoneMsg:
+		m.navigator.cmdNotice = msg.Notice
+		m.navigator.sessions = m.navigatorSessions()
+		m.MarkAllDirty()
+		if m.DaemonClient != nil {
+			return m, m.navigatorLoad()
+		}
+		return m, nil
+
 	case InboxRespondedMsg:
 		return m, m.applyInboxResponded(msg)
 

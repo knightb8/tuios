@@ -55,11 +55,30 @@ const (
 
 // navigatorHints are the footer's keys, in the order of their worth.
 func (m *OS) navigatorHints() []overlay.Hint {
+	if m.navigator.cmdPrompt == "new" {
+		return []overlay.Hint{
+			{Key: "s", Label: "session"},
+			{Key: "w", Label: "workspace"},
+			{Key: "p", Label: "pane"},
+			{Key: "esc", Label: "cancel"},
+		}
+	}
 	if m.navigator.searching {
 		return []overlay.Hint{
 			{Key: overlay.EnterGlyph, Label: "go"},
 			{Key: hintListMove, Label: "move"},
 			{Key: "esc", Label: "stop search"},
+		}
+	}
+	if m.navCommander() {
+		return []overlay.Hint{
+			{Key: "Tab", Label: "panel"},
+			{Key: "m", Label: "move"},
+			{Key: "n", Label: "new"},
+			{Key: "d", Label: "close"},
+			{Key: "c", Label: "normal"},
+			{Key: overlay.EnterGlyph, Label: "go"},
+			{Key: "esc", Label: "close"},
 		}
 	}
 	hints := []overlay.Hint{
@@ -72,6 +91,7 @@ func (m *OS) navigatorHints() []overlay.Hint {
 	}
 	return append(hints,
 		overlay.Hint{Key: "v", Label: "layout"},
+		overlay.Hint{Key: "c", Label: "commander"},
 		overlay.Hint{Key: "esc", Label: "close"},
 	)
 }
@@ -83,6 +103,13 @@ func (m *OS) navigatorGeometry() (width, listW, previewW, lines int, hints []ove
 	width = m.panelWidth(navigatorWidth)
 	lines, hints = m.panelBody(navigatorRowsWanted, navigatorChrome+2*navigatorMarginRows, width, nil, m.navigatorHints())
 	listW = max(width-2, 1)
+	if m.navCommander() {
+		if width-5-navigatorListMin >= navigatorPreviewMin {
+			listW = max((width-5)/2, 1)
+			previewW = max(width-5-listW, 1)
+		}
+		return width, listW, previewW, lines, hints
+	}
 	// Two boxes side by side cost five cells: two borders each and the gap.
 	if width-5-navigatorListMin >= navigatorPreviewMin {
 		listW = min(max(width*2/5, navigatorListMin), navigatorListMax)
@@ -156,7 +183,77 @@ func (m *OS) renderNavigator() (string, overlay.Geometry, []overlayRowHit) {
 		Active: nav.searching,
 	}.Render(bg, pal)...)
 
-	if previewW > 0 {
+	if m.navCommander() && previewW > 0 {
+		nav.rightList.Fit(len(rows), visible)
+
+		leftActive := !nav.searching && nav.activeSide == 0
+		rightActive := !nav.searching && nav.activeSide == 1
+
+		// Left tree box
+		leftList := make([]string, 0, lines)
+		endLeft := min(nav.list.Scroll+visible, len(rows))
+		for i := nav.list.Scroll; i < endLeft; i++ {
+			st := overlay.RowState{Cursor: i == nav.list.Cursor, Focused: leftActive}
+			for _, l := range m.navigatorItem(rows[i], st, listW, pal) {
+				leftList = append(leftList, pal.Row(l, listW, st, bg))
+			}
+		}
+		if len(rows) == 0 {
+			empty := overlay.Empty{Message: "No sessions", Hint: overlay.Hint{Key: "esc", Label: "close"}}
+			leftList = append(leftList, empty.Lines(listW, lines, bg, pal)...)
+		}
+		for len(leftList) < lines {
+			leftList = append(leftList, overlay.Style(bg).Render(strings.Repeat(" ", listW)))
+		}
+		leftList = leftList[:lines]
+
+		leftNote := ""
+		if leftActive {
+			leftNote = "active"
+		}
+		leftBox := overlay.Box{
+			Title: "Left", Note: leftNote,
+			Width: listW, Lines: leftList, Active: leftActive,
+		}.Render(bg, pal)
+
+		// Right tree box
+		rightList := make([]string, 0, lines)
+		endRight := min(nav.rightList.Scroll+visible, len(rows))
+		for i := nav.rightList.Scroll; i < endRight; i++ {
+			st := overlay.RowState{Cursor: i == nav.rightList.Cursor, Focused: rightActive}
+			for _, l := range m.navigatorItem(rows[i], st, previewW, pal) {
+				rightList = append(rightList, pal.Row(l, previewW, st, bg))
+			}
+		}
+		if len(rows) == 0 {
+			empty := overlay.Empty{Message: "No sessions", Hint: overlay.Hint{Key: "esc", Label: "close"}}
+			rightList = append(rightList, empty.Lines(previewW, lines, bg, pal)...)
+		}
+		for len(rightList) < lines {
+			rightList = append(rightList, overlay.Style(bg).Render(strings.Repeat(" ", previewW)))
+		}
+		rightList = rightList[:lines]
+
+		rightNote := ""
+		if rightActive {
+			rightNote = "active"
+		}
+		footer := ""
+		if nav.cmdNotice != "" {
+			footer = nav.cmdNotice
+		} else if nav.loading {
+			footer = "Reading the other sessions…"
+		}
+		rightBox := overlay.Box{
+			Title: "Right", Note: rightNote, Footer: footer,
+			Width: previewW, Lines: rightList, Active: rightActive,
+		}.Render(bg, pal)
+
+		gap := overlay.Style(bg).Render(" ")
+		for i := range leftBox {
+			body = append(body, leftBox[i]+gap+rightBox[i])
+		}
+	} else if previewW > 0 {
 		var preview []string
 		if len(rows) > 0 {
 			preview = m.navigatorPreview(rows[nav.list.Cursor], previewW, lines, bg, pal)
@@ -173,8 +270,12 @@ func (m *OS) renderNavigator() (string, overlay.Geometry, []overlayRowHit) {
 		body = append(body, listBox...)
 	}
 
+	panelTitle := "Navigator"
+	if m.navCommander() {
+		panelTitle = "Pane Commander"
+	}
 	panel := overlay.Panel{
-		Title: "Navigator",
+		Title: panelTitle,
 		Width: width,
 		Body:  strings.Join(body, "\n"),
 		Hints: hints,
@@ -244,6 +345,10 @@ func (m *OS) navigatorSearchLine(width int, bg color.Color, pal overlay.Palette)
 	room := max(width-3, 1)
 	query := nav.list.Query.String()
 	switch {
+	case m.navCommander() && nav.cmdPrompt == "new":
+		return sigil + st.Foreground(pal.AccentBright).Bold(true).Render(overlay.Truncate("Create: [s] Session  [w] Workspace  [p] Pane  (esc to cancel)", room))
+	case m.navCommander() && nav.cmdNotice != "" && !nav.searching:
+		return sigil + st.Foreground(pal.AccentBright).Render(overlay.Truncate(nav.cmdNotice, room))
 	case nav.searching && query == "":
 		return sigil + overlay.Cursor(" ", bg, pal.Fg) + st.Foreground(pal.FgMute).Render(overlay.Truncate("Type a name, a folder, a command or screen text", max(room-1, 1)))
 	case nav.searching:
