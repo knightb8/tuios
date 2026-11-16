@@ -172,6 +172,11 @@ func (s *navSession) workspaces() []int {
 			out = append(out, p.Workspace)
 		}
 	}
+	for ws := range s.WorkspaceNames {
+		if !slices.Contains(out, ws) {
+			out = append(out, ws)
+		}
+	}
 	slices.Sort(out)
 	return out
 }
@@ -201,8 +206,8 @@ type navigatorState struct {
 	open     bool
 	sessions []navSession
 	// expanded holds the rows a person opened or closed, by key. A row not
-	// in it has its default: the current session open, the others shut,
-	// and every workspace of an open session open.
+	// in it has its default: all sessions open, and every workspace of an
+	// open session open.
 	expanded  map[string]bool
 	searching bool
 	// list is the cursor, the window and the search line's text and caret.
@@ -981,7 +986,7 @@ func (m *OS) navigatorRows() []navRow {
 	for si := range m.navigator.sessions {
 		s := &m.navigator.sessions[si]
 		rows = append(rows, navRow{Kind: navRowSession, Session: si})
-		if !m.navExpanded(s.key(), s.Current) {
+		if !m.navExpanded(s.key(), true) {
 			continue
 		}
 		for _, ws := range s.workspaces() {
@@ -1150,7 +1155,7 @@ func (m *OS) NavigatorToggle() {
 	if r.Kind == navRowPane {
 		return
 	}
-	def := r.Kind == navRowWorkspace || m.navigator.sessions[r.Session].Current
+	def := true
 	key := m.navRowKey(r)
 	m.navigator.expanded[key] = !m.navExpanded(key, def)
 	m.MarkAllDirty()
@@ -1508,6 +1513,11 @@ func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
 		for _, p := range sess.Panes {
 			if p.Workspace > maxWs {
 				maxWs = p.Workspace
+			}
+		}
+		for ws := range sess.WorkspaceNames {
+			if ws > maxWs {
+				maxWs = ws
 			}
 		}
 		newWs := maxWs + 1

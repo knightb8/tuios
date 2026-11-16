@@ -186,3 +186,79 @@ func TestNavigatorCommanderMoveItemValidation(t *testing.T) {
 		t.Fatalf("unexpected notice for session move: %q", m.NavigatorCmdNotice())
 	}
 }
+
+// TestNavigatorAllSessionsExpandedByDefault verifies that both current and non-current sessions
+// (and their workspaces and panes) are expanded and visible by default.
+func TestNavigatorAllSessionsExpandedByDefault(t *testing.T) {
+	m := newNarrowOS(t, 120, 40)
+	m.OpenNavigator()
+	defer m.CloseNavigator()
+
+	m.navigator.sessions = []navSession{
+		{
+			Name: "foreign1",
+			Panes: []navPane{
+				{ID: "f1p1", Title: "worker1", Workspace: 1},
+				{ID: "f1p2", Title: "worker2", Workspace: 2},
+			},
+		},
+		{
+			Name:    "current_sess",
+			Current: true,
+			Panes: []navPane{
+				{ID: "cp1", Title: "main_terminal", Workspace: 1},
+			},
+		},
+		{
+			Name: "foreign2",
+			WorkspaceNames: map[int]string{3: "empty_ws"},
+			Panes: []navPane{
+				{ID: "f2p1", Title: "logs", Workspace: 1},
+			},
+		},
+	}
+
+	rows := m.navigatorRows()
+	if len(rows) != 12 {
+		t.Fatalf("expected 12 rows with all sessions expanded, got %d", len(rows))
+	}
+
+	// Verify foreign1 pane is in rows
+	foundF1P1 := false
+	for _, r := range rows {
+		if r.Kind == navRowPane && m.navigator.sessions[r.Session].Panes[r.Pane].ID == "f1p1" {
+			foundF1P1 = true
+			break
+		}
+	}
+	if !foundF1P1 {
+		t.Fatal("expected pane f1p1 from non-current session to be visible")
+	}
+
+	// Verify empty named workspace 3 from foreign2 is in rows
+	foundWS3 := false
+	for _, r := range rows {
+		if r.Kind == navRowWorkspace && r.Workspace == 3 && m.navigator.sessions[r.Session].Name == "foreign2" {
+			foundWS3 = true
+			break
+		}
+	}
+	if !foundWS3 {
+		t.Fatal("expected empty named workspace 3 from foreign2 to be visible")
+	}
+
+	// Fold foreign1 (row 0)
+	m.NavigatorSelect(0)
+	m.NavigatorToggle()
+	rowsAfterFold := m.navigatorRows()
+	if len(rowsAfterFold) != 8 {
+		t.Fatalf("expected 8 rows after folding foreign1, got %d", len(rowsAfterFold))
+	}
+
+	// Unfold foreign1
+	m.NavigatorToggle()
+	rowsAfterUnfold := m.navigatorRows()
+	if len(rowsAfterUnfold) != 12 {
+		t.Fatalf("expected 12 rows after unfolding foreign1, got %d", len(rowsAfterUnfold))
+	}
+}
