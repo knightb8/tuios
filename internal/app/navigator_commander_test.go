@@ -187,6 +187,121 @@ func TestNavigatorCommanderMoveItemValidation(t *testing.T) {
 	}
 }
 
+// TestNavigatorCommanderMovePreviewAndSiblingPlacement tests real-time move previews and sibling targeting.
+func TestNavigatorCommanderMovePreviewAndSiblingPlacement(t *testing.T) {
+	m := newNarrowOS(t, 120, 40)
+	m.OpenNavigator()
+	defer m.CloseNavigator()
+
+	m.navigator.sessions = []navSession{
+		{
+			Name:    "s1",
+			Current: true,
+			Panes: []navPane{
+				{ID: "p1", Title: "editor", Workspace: 1},
+				{ID: "p2", Title: "terminal", Workspace: 1},
+			},
+		},
+		{
+			Name: "s2",
+			Panes: []navPane{
+				{ID: "p3", Title: "logs", Workspace: 1},
+				{ID: "p4", Title: "server", Workspace: 2},
+			},
+		},
+	}
+
+	m.NavigatorToggleCommander()
+
+	// Test 1: Active on session header (row 0), Target on pane p3 (row 6)
+	m.NavigatorSelect(0)
+	m.navigator.rightList.Cursor = 6
+	prev, valid := m.NavigatorMovePreview()
+	if valid {
+		t.Fatal("expected session move to be invalid")
+	}
+	if !strings.Contains(prev, "Cannot move a whole session") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 2: Active on pane p1 (row 2), Target on pane p2 (row 3) in same workspace -> Sibling move
+	m.NavigatorSelect(2)
+	m.navigator.rightList.Cursor = 3
+	prev, valid = m.NavigatorMovePreview()
+	if !valid {
+		t.Fatalf("expected sibling move to be valid, got invalid with: %q", prev)
+	}
+	if !strings.Contains(prev, "Move 'editor' underneath 'terminal'") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 3: Active on pane p1 (row 2), Target on pane p1 (row 2) -> Invalid, already selected
+	m.navigator.rightList.Cursor = 2
+	prev, valid = m.NavigatorMovePreview()
+	if valid {
+		t.Fatal("expected moving pane onto itself to be invalid")
+	}
+	if !strings.Contains(prev, "already selected") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 4: Active on pane p1 (row 2), Target on workspace 1 in s1 (row 1) -> Invalid, already in workspace
+	m.navigator.rightList.Cursor = 1
+	prev, valid = m.NavigatorMovePreview()
+	if valid {
+		t.Fatal("expected moving pane into its current workspace to be invalid")
+	}
+	if !strings.Contains(prev, "already in workspace 1") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 5: Active on pane p1 (row 2), Target on workspace 2 in s2 (row 7) -> Valid cross-session move
+	m.navigator.rightList.Cursor = 7
+	prev, valid = m.NavigatorMovePreview()
+	if !valid {
+		t.Fatalf("expected cross-session move to be valid, got: %q", prev)
+	}
+	if !strings.Contains(prev, "Move 'editor' into s2 (w2)") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 6: Active on workspace 1 in s2 (row 5), Target on workspace 2 in s2 (row 7) -> Valid workspace reordering
+	m.NavigatorSelect(5)
+	m.navigator.rightList.Cursor = 7
+	prev, valid = m.NavigatorMovePreview()
+	if !valid {
+		t.Fatalf("expected workspace reorder to be valid, got: %q", prev)
+	}
+	if !strings.Contains(prev, "Reorder workspace 1 underneath workspace 2") {
+		t.Fatalf("unexpected preview: %q", prev)
+	}
+
+	// Test 7: Verify hints reflect validity
+	hints := m.navigatorHints()
+	foundMove := false
+	for _, h := range hints {
+		if h.Key == "m" && h.Label == "move" {
+			foundMove = true
+		}
+	}
+	if !foundMove {
+		t.Fatal("expected 'm move' hint for valid move")
+	}
+
+	// Select invalid target: target row 5 (same workspace)
+	m.navigator.rightList.Cursor = 5
+	hints = m.navigatorHints()
+	foundMoveOff := false
+	for _, h := range hints {
+		if h.Key == "m" && h.Label == "move (off)" {
+			foundMoveOff = true
+		}
+	}
+	if !foundMoveOff {
+		t.Fatal("expected 'm move (off)' hint for invalid move")
+	}
+}
+
 // TestNavigatorAllSessionsExpandedByDefault verifies that in Commander mode (or with expand all configured),
 // both current and non-current sessions (and their workspaces and panes) are expanded and visible by default.
 func TestNavigatorAllSessionsExpandedByDefault(t *testing.T) {

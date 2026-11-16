@@ -354,6 +354,9 @@ func (m *OS) NavigatorSwitchSide() {
 	if !m.navCommander() {
 		return
 	}
+	if m.navigator.cmdPrompt == "" && m.navigator.cmdNotice != "" {
+		m.navigator.cmdNotice = ""
+	}
 	m.navigator.activeSide = 1 - m.navigator.activeSide
 	m.MarkAllDirty()
 }
@@ -1113,6 +1116,9 @@ func (m *OS) NavigatorMove(delta int) {
 	if n == 0 {
 		return
 	}
+	if m.navigator.cmdPrompt == "" && m.navigator.cmdNotice != "" {
+		m.navigator.cmdNotice = ""
+	}
 	l := m.navActiveList()
 	l.Move(delta, n, m.navigatorVisibleRows(), m.listWraps(), nil)
 	m.MarkAllDirty()
@@ -1121,6 +1127,9 @@ func (m *OS) NavigatorMove(delta int) {
 // NavigatorSelect puts the cursor on row i.
 func (m *OS) NavigatorSelect(i int) {
 	if i >= 0 && i < m.NavigatorRowCount() {
+		if m.navigator.cmdPrompt == "" && m.navigator.cmdNotice != "" {
+			m.navigator.cmdNotice = ""
+		}
 		m.navActiveList().Cursor = i
 		m.MarkAllDirty()
 	}
@@ -1267,27 +1276,139 @@ func (m *OS) NavigatorClickFolds(i int) bool {
 // NavigatorActivateSelected goes to the row under the cursor in the active panel.
 func (m *OS) NavigatorActivateSelected() { m.NavigatorActivate(m.navActiveList().Cursor) }
 
+// NavigatorMovePreview computes a human-readable preview of the move action
+// between the active panel's item and the other panel's item, and reports whether the move is valid.
+func (m *OS) NavigatorMovePreview() (preview string, valid bool) {
+	if !m.navCommander() {
+		return "", false
+	}
+	rows := m.navigatorRows()
+	activeL := m.navActiveList()
+	otherL := m.navOtherList()
+	if activeL.Cursor < 0 || activeL.Cursor >= len(rows) || otherL.Cursor < 0 || otherL.Cursor >= len(rows) {
+		return "", false
+	}
+	srcRow := rows[activeL.Cursor]
+	dstRow := rows[otherL.Cursor]
+
+	if srcRow.Session < 0 || srcRow.Session >= len(m.navigator.sessions) ||
+		dstRow.Session < 0 || dstRow.Session >= len(m.navigator.sessions) {
+		return "", false
+	}
+
+	srcSess := m.navigator.sessions[srcRow.Session]
+	dstSess := m.navigator.sessions[dstRow.Session]
+
+	if srcRow.Kind == navRowSession {
+		return "Cannot move a whole session", false
+	}
+
+	if srcSess.Host != dstSess.Host {
+		return "Cross-machine moves not supported", false
+	}
+
+	if srcRow.Kind == navRowPane {
+		if srcRow.Pane < 0 || srcRow.Pane >= len(srcSess.Panes) {
+			return "", false
+		}
+		srcPane := srcSess.Panes[srcRow.Pane]
+		switch dstRow.Kind {
+		case navRowPane:
+			if dstRow.Pane < 0 || dstRow.Pane >= len(dstSess.Panes) {
+				return "", false
+			}
+			dstPane := dstSess.Panes[dstRow.Pane]
+			if srcPane.ID == dstPane.ID {
+				return fmt.Sprintf("Pane '%s' is already selected", srcPane.Title), false
+			}
+			if srcSess.Name == dstSess.Name && srcPane.Workspace == dstPane.Workspace {
+				return fmt.Sprintf("Move '%s' underneath '%s'", srcPane.Title, dstPane.Title), true
+			}
+			return fmt.Sprintf("Move '%s' under '%s' (%s · w%d)", srcPane.Title, dstPane.Title, dstSess.Name, dstPane.Workspace), true
+
+		case navRowWorkspace:
+			dstWs := dstRow.Workspace
+			if srcSess.Name == dstSess.Name && srcPane.Workspace == dstWs {
+				return fmt.Sprintf("Pane '%s' is already in workspace %d", srcPane.Title, dstWs), false
+			}
+			return fmt.Sprintf("Move '%s' into %s (w%d)", srcPane.Title, dstSess.Name, dstWs), true
+
+		case navRowSession:
+			if srcSess.Name == dstSess.Name {
+				return fmt.Sprintf("Pane '%s' is already in session '%s'", srcPane.Title, dstSess.Name), false
+			}
+			dstWs := 1
+			if len(dstSess.Panes) > 0 {
+				dstWs = dstSess.Panes[0].Workspace
+			}
+			return fmt.Sprintf("Move '%s' into session '%s' (w%d)", srcPane.Title, dstSess.Name, dstWs), true
+		}
+	}
+
+	if srcRow.Kind == navRowWorkspace {
+		srcWs := srcRow.Workspace
+		n := 0
+		for _, p := range srcSess.Panes {
+			if p.Workspace == srcWs {
+				n++
+			}
+		}
+		if n == 0 {
+			return fmt.Sprintf("Workspace %d has no panes to move", srcWs), false
+		}
+
+		switch dstRow.Kind {
+		case navRowWorkspace:
+			dstWs := dstRow.Workspace
+			if srcSess.Name == dstSess.Name {
+				if srcWs == dstWs {
+					return fmt.Sprintf("Workspace %d is already here", srcWs), false
+				}
+				return fmt.Sprintf("Reorder workspace %d underneath workspace %d", srcWs, dstWs), true
+			}
+			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", srcWs, n, dstSess.Name, dstWs), true
+
+		case navRowPane:
+			if dstRow.Pane < 0 || dstRow.Pane >= len(dstSess.Panes) {
+				return "", false
+			}
+			dstPane := dstSess.Panes[dstRow.Pane]
+			if srcSess.Name == dstSess.Name && srcWs == dstPane.Workspace {
+				return fmt.Sprintf("Panes already in workspace %d", srcWs), false
+			}
+			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", srcWs, n, dstSess.Name, dstPane.Workspace), true
+
+		case navRowSession:
+			if srcSess.Name == dstSess.Name {
+				return fmt.Sprintf("Workspace %d is already in session '%s'", srcWs, srcSess.Name), false
+			}
+			return fmt.Sprintf("Move workspace %d (%d panes) into session '%s'", srcWs, n, dstSess.Name), true
+		}
+	}
+
+	return "", false
+}
+
 // NavigatorMoveItem moves the selected pane or workspace from the active panel
 // to the target location highlighted in the other panel.
 func (m *OS) NavigatorMoveItem() tea.Cmd {
 	if !m.navCommander() {
 		return nil
 	}
+	preview, valid := m.NavigatorMovePreview()
+	if !valid {
+		if preview != "" {
+			m.navigator.cmdNotice = preview
+			m.MarkAllDirty()
+		}
+		return nil
+	}
+
 	rows := m.navigatorRows()
 	activeL := m.navActiveList()
 	otherL := m.navOtherList()
-	if activeL.Cursor < 0 || activeL.Cursor >= len(rows) || otherL.Cursor < 0 || otherL.Cursor >= len(rows) {
-		return nil
-	}
 	srcRow := rows[activeL.Cursor]
 	dstRow := rows[otherL.Cursor]
-
-	if srcRow.Kind == navRowSession {
-		m.navigator.cmdNotice = "Cannot move a whole session"
-		m.MarkAllDirty()
-		return nil
-	}
-
 	srcSess := m.navigator.sessions[srcRow.Session]
 	dstSess := m.navigator.sessions[dstRow.Session]
 
@@ -1305,25 +1426,25 @@ func (m *OS) NavigatorMoveItem() tea.Cmd {
 		}
 	}
 
+	fromSess := srcSess.Name
+	toSess := dstSess.Name
+	host := srcSess.Host
+	build := ""
+	if m.DaemonClient != nil {
+		build = m.DaemonClient.ClientVersion()
+	}
+
 	if srcRow.Kind == navRowPane {
 		srcPane := srcSess.Panes[srcRow.Pane]
-		if srcSess.Name == dstSess.Name && srcPane.Workspace == dstWorkspace {
-			m.navigator.cmdNotice = "Pane is already in this workspace"
-			m.MarkAllDirty()
-			return nil
-		}
-
 		windowID := srcPane.ID
-		fromSess := srcSess.Name
-		toSess := dstSess.Name
-		host := srcSess.Host
-		build := ""
-		if m.DaemonClient != nil {
-			build = m.DaemonClient.ClientVersion()
-		}
-
-		m.navigator.cmdNotice = fmt.Sprintf("Moving '%s' to %s (w%d)…", srcPane.Title, toSess, dstWorkspace)
+		m.navigator.cmdNotice = preview + "…"
 		m.MarkAllDirty()
+
+		isSiblingMove := (dstRow.Kind == navRowPane)
+		var dstPaneID string
+		if isSiblingMove {
+			dstPaneID = dstSess.Panes[dstRow.Pane].ID
+		}
 
 		return func() tea.Msg {
 			c, err := dialSessionDaemon(host, build)
@@ -1331,16 +1452,35 @@ func (m *OS) NavigatorMoveItem() tea.Cmd {
 				return NavigatorCmdDoneMsg{Err: err}
 			}
 			defer func() { _ = c.Close() }()
-			params := map[string]any{
-				"session":   fromSess,
-				"window":    windowID,
-				"workspace": dstWorkspace,
+
+			if fromSess == toSess && isSiblingMove {
+				params := map[string]any{
+					"session": fromSess,
+					"window":  windowID,
+					"beside":  dstPaneID,
+					"side":    "down",
+				}
+				_, err = c.Call("move-window", params)
+			} else {
+				params := map[string]any{
+					"session":   fromSess,
+					"window":    windowID,
+					"workspace": dstWorkspace,
+				}
+				if fromSess != toSess {
+					params["to_session"] = toSess
+				}
+				_, err = c.Call("move-window", params)
+				if err == nil && isSiblingMove {
+					_, _ = c.Call("move-window", map[string]any{
+						"session": toSess,
+						"window":  windowID,
+						"beside":  dstPaneID,
+						"side":    "down",
+					})
+				}
 			}
-			if fromSess != toSess {
-				params["to_session"] = toSess
-			}
-			_, err = c.Call("move-window", params)
-			notice := fmt.Sprintf("Moved '%s' to %s (w%d)", srcPane.Title, toSess, dstWorkspace)
+			notice := preview
 			if err != nil {
 				notice = fmt.Sprintf("Move failed: %v", err)
 			}
@@ -1350,25 +1490,50 @@ func (m *OS) NavigatorMoveItem() tea.Cmd {
 
 	if srcRow.Kind == navRowWorkspace {
 		srcWs := srcRow.Workspace
+		if fromSess == toSess && dstRow.Kind == navRowWorkspace {
+			dstWs := dstRow.Workspace
+			existing := srcSess.workspaces()
+			var newOrder []int
+			for _, ws := range existing {
+				if ws == srcWs {
+					continue
+				}
+				newOrder = append(newOrder, ws)
+				if ws == dstWs {
+					newOrder = append(newOrder, srcWs)
+				}
+			}
+			if !slices.Contains(newOrder, srcWs) {
+				newOrder = append(newOrder, srcWs)
+			}
+			m.navigator.cmdNotice = preview + "…"
+			m.MarkAllDirty()
+
+			return func() tea.Msg {
+				c, err := dialSessionDaemon(host, build)
+				if err != nil {
+					return NavigatorCmdDoneMsg{Err: err}
+				}
+				defer func() { _ = c.Close() }()
+				_, err = c.Call("set-workspace-order", map[string]any{
+					"session": fromSess,
+					"order":   newOrder,
+				})
+				notice := preview
+				if err != nil {
+					notice = fmt.Sprintf("Reorder failed: %v", err)
+				}
+				return NavigatorCmdDoneMsg{Notice: notice, Err: err}
+			}
+		}
+
 		var panesToMove []string
 		for _, p := range srcSess.Panes {
 			if p.Workspace == srcWs {
 				panesToMove = append(panesToMove, p.ID)
 			}
 		}
-		if len(panesToMove) == 0 {
-			m.navigator.cmdNotice = "Workspace has no panes to move"
-			m.MarkAllDirty()
-			return nil
-		}
-		fromSess := srcSess.Name
-		toSess := dstSess.Name
-		host := srcSess.Host
-		build := ""
-		if m.DaemonClient != nil {
-			build = m.DaemonClient.ClientVersion()
-		}
-		m.navigator.cmdNotice = fmt.Sprintf("Moving %d pane(s) from w%d to %s (w%d)…", len(panesToMove), srcWs, toSess, dstWorkspace)
+		m.navigator.cmdNotice = preview + "…"
 		m.MarkAllDirty()
 
 		return func() tea.Msg {
@@ -1390,9 +1555,7 @@ func (m *OS) NavigatorMoveItem() tea.Cmd {
 					return NavigatorCmdDoneMsg{Notice: fmt.Sprintf("Move failed: %v", err), Err: err}
 				}
 			}
-			return NavigatorCmdDoneMsg{
-				Notice: fmt.Sprintf("Moved %d pane(s) to %s (w%d)", len(panesToMove), toSess, dstWorkspace),
-			}
+			return NavigatorCmdDoneMsg{Notice: preview, Err: nil}
 		}
 	}
 	return nil

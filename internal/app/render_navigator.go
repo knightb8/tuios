@@ -71,9 +71,14 @@ func (m *OS) navigatorHints() []overlay.Hint {
 		}
 	}
 	if m.navCommander() {
+		_, valid := m.NavigatorMovePreview()
+		moveLabel := "move"
+		if !valid {
+			moveLabel = "move (off)"
+		}
 		return []overlay.Hint{
 			{Key: "Tab", Label: "panel"},
-			{Key: "m", Label: "move"},
+			{Key: "m", Label: moveLabel},
 			{Key: "n", Label: "new"},
 			{Key: "d", Label: "close"},
 			{Key: "c", Label: "normal"},
@@ -243,6 +248,8 @@ func (m *OS) renderNavigator() (string, overlay.Geometry, []overlayRowHit) {
 			footer = nav.cmdNotice
 		} else if nav.loading {
 			footer = "Reading the other sessions…"
+		} else if prev, _ := m.NavigatorMovePreview(); prev != "" {
+			footer = prev
 		}
 		rightBox := overlay.Box{
 			Title: "Right", Note: rightNote, Footer: footer,
@@ -348,7 +355,23 @@ func (m *OS) navigatorSearchLine(width int, bg color.Color, pal overlay.Palette)
 	case m.navCommander() && nav.cmdPrompt == "new":
 		return sigil + st.Foreground(pal.AccentBright).Bold(true).Render(overlay.Truncate("Create: [s] Session  [w] Workspace  [p] Pane  (esc to cancel)", room))
 	case m.navCommander() && nav.cmdNotice != "" && !nav.searching:
-		return sigil + st.Foreground(pal.AccentBright).Render(overlay.Truncate(nav.cmdNotice, room))
+		ink := pal.AccentBright
+		noticeLower := strings.ToLower(nav.cmdNotice)
+		if strings.Contains(noticeLower, "cannot") ||
+			strings.Contains(noticeLower, "failed") ||
+			strings.Contains(noticeLower, "already") ||
+			strings.Contains(noticeLower, "no panes") ||
+			strings.Contains(noticeLower, "not supported") {
+			ink = pal.Warn
+		}
+		return sigil + st.Foreground(ink).Bold(true).Render(overlay.Truncate(nav.cmdNotice, room))
+	case m.navCommander() && !nav.searching:
+		if prev, valid := m.NavigatorMovePreview(); prev != "" {
+			if valid {
+				return sigil + st.Foreground(pal.Success).Bold(true).Render("→ ") + st.Foreground(pal.AccentBright).Render(overlay.Truncate(prev, max(room-2, 1)))
+			}
+			return sigil + st.Foreground(pal.Warn).Bold(true).Render("✕ ") + st.Foreground(pal.FgMute).Render(overlay.Truncate(prev, max(room-2, 1)))
+		}
 	case nav.searching && query == "":
 		return sigil + overlay.Cursor(" ", bg, pal.Fg) + st.Foreground(pal.FgMute).Render(overlay.Truncate("Type a name, a folder, a command or screen text", max(room-1, 1)))
 	case nav.searching:
