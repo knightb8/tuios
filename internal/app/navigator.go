@@ -957,6 +957,20 @@ func (m *OS) navExpanded(key string, def bool) bool {
 	return def
 }
 
+// navSessionDefaultExpanded reports whether a session row should be expanded by default.
+func (m *OS) navSessionDefaultExpanded(current bool) bool {
+	if m.navCommander() {
+		if m.UserConfig != nil && m.UserConfig.Panes.CommanderExpandAll != nil {
+			return *m.UserConfig.Panes.CommanderExpandAll || current
+		}
+		return true // Default to true in commander mode
+	}
+	if m.UserConfig != nil && m.UserConfig.Panes.NavigatorExpandAll {
+		return true
+	}
+	return current
+}
+
 // navigatorRows is the list as it is drawn: the tree, or with a search the
 // panes that match, best first.
 func (m *OS) navigatorRows() []navRow {
@@ -986,7 +1000,7 @@ func (m *OS) navigatorRows() []navRow {
 	for si := range m.navigator.sessions {
 		s := &m.navigator.sessions[si]
 		rows = append(rows, navRow{Kind: navRowSession, Session: si})
-		if !m.navExpanded(s.key(), true) {
+		if !m.navExpanded(s.key(), m.navSessionDefaultExpanded(s.Current)) {
 			continue
 		}
 		for _, ws := range s.workspaces() {
@@ -1155,7 +1169,7 @@ func (m *OS) NavigatorToggle() {
 	if r.Kind == navRowPane {
 		return
 	}
-	def := true
+	def := r.Kind == navRowWorkspace || m.navSessionDefaultExpanded(m.navigator.sessions[r.Session].Current)
 	key := m.navRowKey(r)
 	m.navigator.expanded[key] = !m.navExpanded(key, def)
 	m.MarkAllDirty()

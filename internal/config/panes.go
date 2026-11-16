@@ -25,6 +25,12 @@ type PanesConfig struct {
 	// type, so prefix / then the name finds a pane (default: false, the list).
 	// esc with nothing typed then closes it.
 	NavigatorSearch bool `toml:"navigator_search"`
+	// NavigatorExpandAll opens every session's workspaces and panes when the
+	// navigator opens in tree mode (default: false, only current session open).
+	NavigatorExpandAll bool `toml:"navigator_expand_all"`
+	// CommanderExpandAll overrides NavigatorExpandAll specifically for Pane Commander
+	// mode. When unset (nil), Pane Commander defaults to expanding all sessions (true).
+	CommanderExpandAll *bool `toml:"commander_expand_all"`
 	// DragAndDrop turns on drag and drop between panes over the kitty drag
 	// and drop protocol (OSC 72): a program that speaks it, such as yazi,
 	// can drag files to another pane, and a pane whose program does not

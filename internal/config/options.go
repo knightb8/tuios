@@ -1987,6 +1987,14 @@ var optionSpecs = []Option{
 		Description: "Open the pane navigator ready to type a search",
 	},
 	{
+		Path: "panes.navigator_expand_all", Type: OptionBool, Section: "panes",
+		Description: "Open every session's workspaces and panes when the navigator opens",
+	},
+	{
+		Path: "panes.commander_expand_all", Type: OptionBool, Section: "panes",
+		Description: "Override navigator_expand_all specifically for Pane Commander mode",
+	},
+	{
 		Path: "panes.drag_and_drop", Type: OptionBool, Section: "panes",
 		Description: "Drag and drop between panes over the kitty drag and drop protocol (OSC 72)",
 	},

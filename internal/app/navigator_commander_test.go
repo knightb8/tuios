@@ -187,12 +187,13 @@ func TestNavigatorCommanderMoveItemValidation(t *testing.T) {
 	}
 }
 
-// TestNavigatorAllSessionsExpandedByDefault verifies that both current and non-current sessions
-// (and their workspaces and panes) are expanded and visible by default.
+// TestNavigatorAllSessionsExpandedByDefault verifies that in Commander mode (or with expand all configured),
+// both current and non-current sessions (and their workspaces and panes) are expanded and visible by default.
 func TestNavigatorAllSessionsExpandedByDefault(t *testing.T) {
 	m := newNarrowOS(t, 120, 40)
 	m.OpenNavigator()
 	defer m.CloseNavigator()
+	m.NavigatorToggleCommander()
 
 	m.navigator.sessions = []navSession{
 		{
@@ -260,5 +261,70 @@ func TestNavigatorAllSessionsExpandedByDefault(t *testing.T) {
 	rowsAfterUnfold := m.navigatorRows()
 	if len(rowsAfterUnfold) != 12 {
 		t.Fatalf("expected 12 rows after unfolding foreign1, got %d", len(rowsAfterUnfold))
+	}
+}
+
+// TestNavigatorExpandAllConfigAndCommanderOverride tests the interaction between
+// panes.navigator_expand_all and panes.commander_expand_all.
+func TestNavigatorExpandAllConfigAndCommanderOverride(t *testing.T) {
+	m := newNarrowOS(t, 120, 40)
+	m.OpenNavigator()
+	defer m.CloseNavigator()
+
+	m.navigator.sessions = []navSession{
+		{
+			Name: "foreign",
+			Panes: []navPane{
+				{ID: "fp1", Title: "worker", Workspace: 1},
+			},
+		},
+		{
+			Name:    "current",
+			Current: true,
+			Panes: []navPane{
+				{ID: "cp1", Title: "term", Workspace: 1},
+			},
+		},
+	}
+
+	// 1. By default in standard Navigator (commander=false, navigator_expand_all=false):
+	// foreign is collapsed (1 header row), current is expanded (1 sess + 1 ws + 1 pane = 3 rows). Total = 4 rows.
+	rows := m.navigatorRows()
+	if len(rows) != 4 {
+		t.Fatalf("expected 4 rows in standard navigator by default, got %d", len(rows))
+	}
+
+	// 2. Set panes.navigator_expand_all = true in standard navigator:
+	// Both foreign and current are expanded (1 sess + 1 ws + 1 pane each = 3 * 2 = 6 rows). Total = 6 rows.
+	m.UserConfig.Panes.NavigatorExpandAll = true
+	rows = m.navigatorRows()
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows with navigator_expand_all=true, got %d", len(rows))
+	}
+
+	// 3. Reset navigator_expand_all = false, switch to Commander mode:
+	// Commander mode defaults to expanding all (commander_expand_all=nil defaults to true).
+	m.UserConfig.Panes.NavigatorExpandAll = false
+	m.NavigatorToggleCommander()
+	rows = m.navigatorRows()
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows in Commander mode by default (override navigator_expand_all=false), got %d", len(rows))
+	}
+
+	// 4. In Commander mode, explicitly override with commander_expand_all = false:
+	// Now foreign should be collapsed in Commander mode too!
+	f := false
+	m.UserConfig.Panes.CommanderExpandAll = &f
+	rows = m.navigatorRows()
+	if len(rows) != 4 {
+		t.Fatalf("expected 4 rows in Commander mode with commander_expand_all=false, got %d", len(rows))
+	}
+
+	// 5. Explicitly override with commander_expand_all = true:
+	tr := true
+	m.UserConfig.Panes.CommanderExpandAll = &tr
+	rows = m.navigatorRows()
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows in Commander mode with commander_expand_all=true, got %d", len(rows))
 	}
 }
