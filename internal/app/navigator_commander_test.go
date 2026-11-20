@@ -300,6 +300,15 @@ func TestNavigatorCommanderMovePreviewAndSiblingPlacement(t *testing.T) {
 	if !foundMoveOff {
 		t.Fatal("expected 'm move (off)' hint for invalid move")
 	}
+
+	// Test 8: Respect workspaces.base_index (WorkspaceIndexOffset = 1 -> 0-indexed display)
+	m.Settings.WorkspaceIndexOffset = 1
+	m.NavigatorSelect(5)             // workspace 1 -> displays as 0
+	m.navigator.rightList.Cursor = 7 // workspace 2 -> displays as 1
+	prev, valid = m.NavigatorMovePreview()
+	if !valid || !strings.Contains(prev, "Reorder workspace 0 underneath workspace 1") {
+		t.Fatalf("expected 0-based workspace display numbers in preview, got valid=%v prev=%q", valid, prev)
+	}
 }
 
 // TestNavigatorAllSessionsExpandedByDefault verifies that in Commander mode (or with expand all configured),
@@ -326,7 +335,7 @@ func TestNavigatorAllSessionsExpandedByDefault(t *testing.T) {
 			},
 		},
 		{
-			Name: "foreign2",
+			Name:           "foreign2",
 			WorkspaceNames: map[int]string{3: "empty_ws"},
 			Panes: []navPane{
 				{ID: "f2p1", Title: "logs", Workspace: 1},

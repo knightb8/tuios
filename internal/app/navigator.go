@@ -393,6 +393,7 @@ func (m *OS) NavigatorSetCmdPrompt(prompt string) {
 	}
 	m.MarkAllDirty()
 }
+
 // navFlat reports whether the list is a list of panes rather than a tree:
 // a search is in force, or the layout is flat or cards. A flat list has no
 // folds.
@@ -1324,14 +1325,15 @@ func (m *OS) NavigatorMovePreview() (preview string, valid bool) {
 			if srcSess.Name == dstSess.Name && srcPane.Workspace == dstPane.Workspace {
 				return fmt.Sprintf("Move '%s' underneath '%s'", srcPane.Title, dstPane.Title), true
 			}
-			return fmt.Sprintf("Move '%s' under '%s' (%s · w%d)", srcPane.Title, dstPane.Title, dstSess.Name, dstPane.Workspace), true
+			return fmt.Sprintf("Move '%s' under '%s' (%s · w%d)", srcPane.Title, dstPane.Title, dstSess.Name, m.workspaceDisplayNumber(dstPane.Workspace)), true
 
 		case navRowWorkspace:
 			dstWs := dstRow.Workspace
+			dispDstWs := m.workspaceDisplayNumber(dstWs)
 			if srcSess.Name == dstSess.Name && srcPane.Workspace == dstWs {
-				return fmt.Sprintf("Pane '%s' is already in workspace %d", srcPane.Title, dstWs), false
+				return fmt.Sprintf("Pane '%s' is already in workspace %d", srcPane.Title, dispDstWs), false
 			}
-			return fmt.Sprintf("Move '%s' into %s (w%d)", srcPane.Title, dstSess.Name, dstWs), true
+			return fmt.Sprintf("Move '%s' into %s (w%d)", srcPane.Title, dstSess.Name, dispDstWs), true
 
 		case navRowSession:
 			if srcSess.Name == dstSess.Name {
@@ -1341,12 +1343,13 @@ func (m *OS) NavigatorMovePreview() (preview string, valid bool) {
 			if len(dstSess.Panes) > 0 {
 				dstWs = dstSess.Panes[0].Workspace
 			}
-			return fmt.Sprintf("Move '%s' into session '%s' (w%d)", srcPane.Title, dstSess.Name, dstWs), true
+			return fmt.Sprintf("Move '%s' into session '%s' (w%d)", srcPane.Title, dstSess.Name, m.workspaceDisplayNumber(dstWs)), true
 		}
 	}
 
 	if srcRow.Kind == navRowWorkspace {
 		srcWs := srcRow.Workspace
+		dispSrcWs := m.workspaceDisplayNumber(srcWs)
 		n := 0
 		for _, p := range srcSess.Panes {
 			if p.Workspace == srcWs {
@@ -1354,19 +1357,20 @@ func (m *OS) NavigatorMovePreview() (preview string, valid bool) {
 			}
 		}
 		if n == 0 {
-			return fmt.Sprintf("Workspace %d has no panes to move", srcWs), false
+			return fmt.Sprintf("Workspace %d has no panes to move", dispSrcWs), false
 		}
 
 		switch dstRow.Kind {
 		case navRowWorkspace:
 			dstWs := dstRow.Workspace
+			dispDstWs := m.workspaceDisplayNumber(dstWs)
 			if srcSess.Name == dstSess.Name {
 				if srcWs == dstWs {
-					return fmt.Sprintf("Workspace %d is already here", srcWs), false
+					return fmt.Sprintf("Workspace %d is already here", dispSrcWs), false
 				}
-				return fmt.Sprintf("Reorder workspace %d underneath workspace %d", srcWs, dstWs), true
+				return fmt.Sprintf("Reorder workspace %d underneath workspace %d", dispSrcWs, dispDstWs), true
 			}
-			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", srcWs, n, dstSess.Name, dstWs), true
+			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", dispSrcWs, n, dstSess.Name, dispDstWs), true
 
 		case navRowPane:
 			if dstRow.Pane < 0 || dstRow.Pane >= len(dstSess.Panes) {
@@ -1374,15 +1378,15 @@ func (m *OS) NavigatorMovePreview() (preview string, valid bool) {
 			}
 			dstPane := dstSess.Panes[dstRow.Pane]
 			if srcSess.Name == dstSess.Name && srcWs == dstPane.Workspace {
-				return fmt.Sprintf("Panes already in workspace %d", srcWs), false
+				return fmt.Sprintf("Panes already in workspace %d", dispSrcWs), false
 			}
-			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", srcWs, n, dstSess.Name, dstPane.Workspace), true
+			return fmt.Sprintf("Move workspace %d (%d panes) into %s (w%d)", dispSrcWs, n, dstSess.Name, m.workspaceDisplayNumber(dstPane.Workspace)), true
 
 		case navRowSession:
 			if srcSess.Name == dstSess.Name {
-				return fmt.Sprintf("Workspace %d is already in session '%s'", srcWs, srcSess.Name), false
+				return fmt.Sprintf("Workspace %d is already in session '%s'", dispSrcWs, srcSess.Name), false
 			}
-			return fmt.Sprintf("Move workspace %d (%d panes) into session '%s'", srcWs, n, dstSess.Name), true
+			return fmt.Sprintf("Move workspace %d (%d panes) into session '%s'", dispSrcWs, n, dstSess.Name), true
 		}
 	}
 
@@ -1698,7 +1702,8 @@ func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
 			}
 		}
 		newWs := maxWs + 1
-		m.navigator.cmdNotice = fmt.Sprintf("Creating workspace %d in '%s'…", newWs, sess.Name)
+		dispNewWs := m.workspaceDisplayNumber(newWs)
+		m.navigator.cmdNotice = fmt.Sprintf("Creating workspace %d in '%s'…", dispNewWs, sess.Name)
 		m.MarkAllDirty()
 		return func() tea.Msg {
 			c, err := dialSessionDaemon(host, build)
@@ -1710,14 +1715,15 @@ func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
 				"session":   sess.Name,
 				"workspace": newWs,
 			})
-			notice := fmt.Sprintf("Created workspace %d in '%s'", newWs, sess.Name)
+			notice := fmt.Sprintf("Created workspace %d in '%s'", dispNewWs, sess.Name)
 			if err != nil {
 				notice = fmt.Sprintf("Failed to create workspace: %v", err)
 			}
 			return NavigatorCmdDoneMsg{Notice: notice, Err: err}
 		}
 	case "p":
-		m.navigator.cmdNotice = fmt.Sprintf("Creating pane in '%s' (w%d)…", sess.Name, ws)
+		dispWs := m.workspaceDisplayNumber(ws)
+		m.navigator.cmdNotice = fmt.Sprintf("Creating pane in '%s' (w%d)…", sess.Name, dispWs)
 		m.MarkAllDirty()
 		return func() tea.Msg {
 			c, err := dialSessionDaemon(host, build)
@@ -1729,7 +1735,7 @@ func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
 				"session":   sess.Name,
 				"workspace": ws,
 			})
-			notice := fmt.Sprintf("Created pane in '%s' (w%d)", sess.Name, ws)
+			notice := fmt.Sprintf("Created pane in '%s' (w%d)", sess.Name, dispWs)
 			if err != nil {
 				notice = fmt.Sprintf("Failed to create pane: %v", err)
 			}
