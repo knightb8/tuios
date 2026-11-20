@@ -390,10 +390,12 @@ The defaults are the ones on Linux. Some defaults are different on macOS.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| <a id="panes.commander_expand_all"></a>`panes.commander_expand_all` | bool | empty | Override navigator_expand_all specifically for Pane Commander mode |
 | <a id="panes.drag_and_drop"></a>`panes.drag_and_drop` | bool | `false` | Drag and drop between panes over the kitty drag and drop protocol (OSC 72) |
 | <a id="panes.drag_and_drop_desktop"></a>`panes.drag_and_drop_desktop` | bool | `false` | Bridge drags to and from the desktop through a terminal that speaks the protocol (kitty) |
 | <a id="panes.label_keys"></a>`panes.label_keys` | string | `1234567890` | Keys the pane labels are made of, first pane first. Letters a to z and digits |
-| <a id="panes.navigator_layout"></a>`panes.navigator_layout` | string | `tree` | How the pane navigator lists the panes when it opens Values: `tree`, `flat`, `cards`. |
+| <a id="panes.navigator_expand_all"></a>`panes.navigator_expand_all` | bool | `false` | Open every session's workspaces and panes when the navigator opens |
+| <a id="panes.navigator_layout"></a>`panes.navigator_layout` | string | `tree` | How the pane navigator lists the panes when it opens Values: `tree`, `flat`, `cards`, `commander`. |
 | <a id="panes.navigator_search"></a>`panes.navigator_search` | bool | `false` | Open the pane navigator ready to type a search |
 | <a id="path_picker.show_hidden"></a>`path_picker.show_hidden` | bool | `false` | The path picker lists hidden files. Alt+h in the picker shows or hides them |
 
