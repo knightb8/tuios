@@ -390,6 +390,7 @@ The defaults are the ones on Linux. Some defaults are different on macOS.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| <a id="panes.commander_confirm_close"></a>`panes.commander_confirm_close` | bool | empty | Ask for confirmation before closing a session in Pane Commander mode |
 | <a id="panes.commander_expand_all"></a>`panes.commander_expand_all` | bool | empty | Override navigator_expand_all specifically for Pane Commander mode |
 | <a id="panes.drag_and_drop"></a>`panes.drag_and_drop` | bool | `false` | Drag and drop between panes over the kitty drag and drop protocol (OSC 72) |
 | <a id="panes.drag_and_drop_desktop"></a>`panes.drag_and_drop_desktop` | bool | `false` | Bridge drags to and from the desktop through a terminal that speaks the protocol (kitty) |

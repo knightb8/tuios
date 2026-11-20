@@ -63,6 +63,13 @@ func (m *OS) navigatorHints() []overlay.Hint {
 			{Key: "esc", Label: "cancel"},
 		}
 	}
+	if m.navigator.cmdPrompt == "close" {
+		return []overlay.Hint{
+			{Key: "y", Label: "confirm close"},
+			{Key: "n", Label: "cancel"},
+			{Key: "esc", Label: "cancel"},
+		}
+	}
 	if m.navigator.searching {
 		return []overlay.Hint{
 			{Key: overlay.EnterGlyph, Label: "go"},
@@ -354,6 +361,8 @@ func (m *OS) navigatorSearchLine(width int, bg color.Color, pal overlay.Palette)
 	switch {
 	case m.navCommander() && nav.cmdPrompt == "new":
 		return sigil + st.Foreground(pal.AccentBright).Bold(true).Render(overlay.Truncate("Create: [s] Session  [w] Workspace  [p] Pane  (esc to cancel)", room))
+	case m.navCommander() && nav.cmdPrompt == "close":
+		return sigil + st.Foreground(pal.Warn).Bold(true).Render(overlay.Truncate(nav.cmdNotice, room))
 	case m.navCommander() && nav.cmdNotice != "" && !nav.searching:
 		ink := pal.AccentBright
 		noticeLower := strings.ToLower(nav.cmdNotice)

@@ -40,6 +40,16 @@ func handleNavigatorInput(msg tea.KeyPressMsg, o *app.OS) (*app.OS, tea.Cmd) {
 		}
 		return o, nil
 	}
+	if o.NavigatorCmdPrompt() == "close" {
+		switch key {
+		case "y", "enter":
+			return o, o.NavigatorConfirmClose()
+		case "n", "esc", "q":
+			o.NavigatorSetCmdPrompt("")
+			return o, nil
+		}
+		return o, nil
+	}
 
 	if o.NavigatorSearching() {
 		if listKey(o, key, false, listPage, o.NavigatorMove) {

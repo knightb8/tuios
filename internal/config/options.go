@@ -1995,6 +1995,10 @@ var optionSpecs = []Option{
 		Description: "Override navigator_expand_all specifically for Pane Commander mode",
 	},
 	{
+		Path: "panes.commander_confirm_close", Type: OptionBool, Section: "panes",
+		Description: "Ask for confirmation before closing a session in Pane Commander mode",
+	},
+	{
 		Path: "panes.drag_and_drop", Type: OptionBool, Section: "panes",
 		Description: "Drag and drop between panes over the kitty drag and drop protocol (OSC 72)",
 	},

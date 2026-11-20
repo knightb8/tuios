@@ -452,3 +452,106 @@ func TestNavigatorExpandAllConfigAndCommanderOverride(t *testing.T) {
 		t.Fatalf("expected 6 rows in Commander mode with commander_expand_all=true, got %d", len(rows))
 	}
 }
+
+func TestNavigatorCommanderCloseConfirmation(t *testing.T) {
+	m := newNarrowOS(t, 120, 40)
+	m.UserConfig = config.DefaultConfig()
+	m.OpenNavigator()
+	defer m.CloseNavigator()
+	m.NavigatorToggleCommander()
+
+	m.navigator.sessions = []navSession{
+		{
+			Name:    "current",
+			Current: true,
+			Panes: []navPane{
+				{ID: "p1", Title: "idle-shell", Workspace: 1},
+				{ID: "p2", Title: "busy-agent", Workspace: 1, AgentState: "working"},
+			},
+		},
+		{
+			Name: "other",
+			Panes: []navPane{
+				{ID: "p3", Title: "worker", Workspace: 1},
+			},
+		},
+	}
+
+	// Rows:
+	// 0: session current
+	// 1: workspace 1
+	// 2: pane p1 (idle)
+	// 3: pane p2 (busy)
+	// 4: session other
+	// 5: workspace 1
+	// 6: pane p3
+
+	// 1. Closing a non-current session prompts by default.
+	m.NavigatorSelect(4)
+	cmd := m.NavigatorCloseItem()
+	if cmd != nil {
+		t.Fatal("expected close confirmation prompt before killing session, got immediate command")
+	}
+	if m.NavigatorCmdPrompt() != "close" {
+		t.Fatalf("expected cmdPrompt='close', got %q", m.NavigatorCmdPrompt())
+	}
+	if !strings.Contains(m.NavigatorCmdNotice(), "Close session 'other'") {
+		t.Fatalf("unexpected close prompt notice: %q", m.NavigatorCmdNotice())
+	}
+
+	// Cancelling clears prompt and notice.
+	m.NavigatorSetCmdPrompt("")
+	if m.NavigatorCmdPrompt() != "" || m.NavigatorCmdNotice() != "" {
+		t.Fatalf("expected prompt and notice cleared after cancel, got prompt=%q notice=%q", m.NavigatorCmdPrompt(), m.NavigatorCmdNotice())
+	}
+
+	// Confirming executes the close command.
+	m.NavigatorCloseItem()
+	cmd = m.NavigatorConfirmClose()
+	if cmd == nil {
+		t.Fatal("expected NavigatorConfirmClose to return close command")
+	}
+	if m.NavigatorCmdPrompt() != "" {
+		t.Fatalf("expected cmdPrompt cleared after confirm, got %q", m.NavigatorCmdPrompt())
+	}
+
+	// 2. Opting out via panes.commander_confirm_close = false skips confirmation.
+	optOut := false
+	m.UserConfig.Panes.CommanderConfirmClose = &optOut
+	m.NavigatorSelect(4)
+	cmd = m.NavigatorCloseItem()
+	if cmd == nil {
+		t.Fatal("expected immediate close command when commander_confirm_close=false")
+	}
+	if m.NavigatorCmdPrompt() != "" {
+		t.Fatalf("expected no close prompt when opted out, got %q", m.NavigatorCmdPrompt())
+	}
+
+	// 3. Re-enable confirmation and verify pane close honors appearance.confirm_close.
+	optIn := true
+	m.UserConfig.Panes.CommanderConfirmClose = &optIn
+
+	m.Settings.ConfirmClose = config.ConfirmCloseNever
+	m.NavigatorSelect(2) // idle pane
+	if cmd := m.NavigatorCloseItem(); cmd == nil || m.NavigatorCmdPrompt() != "" {
+		t.Fatal("expected ConfirmCloseNever to close pane without prompt")
+	}
+
+	m.Settings.ConfirmClose = config.ConfirmCloseBusy
+	m.NavigatorSelect(2) // idle pane
+	if cmd := m.NavigatorCloseItem(); cmd == nil || m.NavigatorCmdPrompt() != "" {
+		t.Fatal("expected ConfirmCloseBusy to close idle pane without prompt")
+	}
+	m.NavigatorSelect(3) // busy agent pane
+	if cmd := m.NavigatorCloseItem(); cmd != nil || m.NavigatorCmdPrompt() != "close" {
+		t.Fatal("expected ConfirmCloseBusy to prompt on busy pane")
+	}
+	m.NavigatorSetCmdPrompt("")
+
+	m.Settings.ConfirmClose = config.ConfirmCloseAlways
+	m.NavigatorSelect(2) // idle pane
+	if cmd := m.NavigatorCloseItem(); cmd != nil || m.NavigatorCmdPrompt() != "close" {
+		t.Fatal("expected ConfirmCloseAlways to prompt on any pane")
+	}
+	m.NavigatorSetCmdPrompt("")
+}

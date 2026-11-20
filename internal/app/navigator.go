@@ -383,13 +383,17 @@ func (m *OS) NavigatorCmdNotice() string { return m.navigator.cmdNotice }
 // NavigatorCmdPrompt returns the current commander prompt mode.
 func (m *OS) NavigatorCmdPrompt() string { return m.navigator.cmdPrompt }
 
-// NavigatorSetCmdPrompt sets the prompt mode ("new" or "").
+// NavigatorSetCmdPrompt sets the prompt mode ("new", "close", or "").
 func (m *OS) NavigatorSetCmdPrompt(prompt string) {
+	prev := m.navigator.cmdPrompt
 	m.navigator.cmdPrompt = prompt
-	if prompt == "new" {
+	switch prompt {
+	case "new":
 		m.navigator.cmdNotice = "Create: [s] Session  [w] Workspace  [p] Pane  (esc cancel)"
-	} else if prompt == "" && m.navigator.cmdNotice == "Create: [s] Session  [w] Workspace  [p] Pane  (esc cancel)" {
-		m.navigator.cmdNotice = ""
+	case "":
+		if prev == "new" || prev == "close" {
+			m.navigator.cmdNotice = ""
+		}
 	}
 	m.MarkAllDirty()
 }
@@ -1565,7 +1569,40 @@ func (m *OS) NavigatorMoveItem() tea.Cmd {
 	return nil
 }
 
+// navCommanderConfirmClose reports whether Pane Commander asks before closing
+// a session (or pane, honoring appearance.confirm_close). Defaults to true.
+func (m *OS) navCommanderConfirmClose() bool {
+	if m.UserConfig != nil && m.UserConfig.Panes.CommanderConfirmClose != nil {
+		return *m.UserConfig.Panes.CommanderConfirmClose
+	}
+	return true
+}
+
+// navNeedsCloseConfirm reports whether closing r in sess should prompt first.
+func (m *OS) navNeedsCloseConfirm(r navRow, sess navSession) bool {
+	if !m.navCommanderConfirmClose() {
+		return false
+	}
+	switch r.Kind {
+	case navRowSession:
+		return true
+	case navRowPane:
+		if r.Pane < 0 || r.Pane >= len(sess.Panes) {
+			return false
+		}
+		switch m.Settings.ConfirmClose {
+		case config.ConfirmCloseAlways:
+			return true
+		case config.ConfirmCloseBusy:
+			p := sess.Panes[r.Pane]
+			return p.AgentState != "" || p.Cmdline != ""
+		}
+	}
+	return false
+}
+
 // NavigatorCloseItem closes/kills the selected pane or session in commander mode.
+// When confirmation is enabled, it opens an inline prompt instead of closing immediately.
 func (m *OS) NavigatorCloseItem() tea.Cmd {
 	if !m.navCommander() {
 		return nil
@@ -1577,6 +1614,48 @@ func (m *OS) NavigatorCloseItem() tea.Cmd {
 	}
 	r := rows[l.Cursor]
 	sess := m.navigator.sessions[r.Session]
+
+	if r.Kind == navRowSession && sess.Current {
+		m.navigator.cmdNotice = "Cannot close the attached session from Commander"
+		m.MarkAllDirty()
+		return nil
+	}
+
+	if m.navNeedsCloseConfirm(r, sess) {
+		m.navigator.cmdPrompt = "close"
+		switch r.Kind {
+		case navRowSession:
+			m.navigator.cmdNotice = fmt.Sprintf("Close session '%s' (%d panes)? [y] confirm  [n/esc] cancel", sess.Name, len(sess.Panes))
+		case navRowPane:
+			p := sess.Panes[r.Pane]
+			m.navigator.cmdNotice = fmt.Sprintf("Close pane '%s'? [y] confirm  [n/esc] cancel", p.Title)
+		}
+		m.MarkAllDirty()
+		return nil
+	}
+
+	return m.executeNavigatorClose(r, sess)
+}
+
+// NavigatorConfirmClose executes a pending close confirmation prompt.
+func (m *OS) NavigatorConfirmClose() tea.Cmd {
+	if !m.navCommander() || m.navigator.cmdPrompt != "close" {
+		return nil
+	}
+	m.navigator.cmdPrompt = ""
+	rows := m.navigatorRows()
+	l := m.navActiveList()
+	if l.Cursor < 0 || l.Cursor >= len(rows) {
+		m.navigator.cmdNotice = ""
+		m.MarkAllDirty()
+		return nil
+	}
+	r := rows[l.Cursor]
+	sess := m.navigator.sessions[r.Session]
+	return m.executeNavigatorClose(r, sess)
+}
+
+func (m *OS) executeNavigatorClose(r navRow, sess navSession) tea.Cmd {
 	host := sess.Host
 	build := ""
 	if m.DaemonClient != nil {
@@ -1585,6 +1664,9 @@ func (m *OS) NavigatorCloseItem() tea.Cmd {
 
 	switch r.Kind {
 	case navRowPane:
+		if r.Pane < 0 || r.Pane >= len(sess.Panes) {
+			return nil
+		}
 		p := sess.Panes[r.Pane]
 		m.navigator.cmdNotice = fmt.Sprintf("Closing pane '%s'…", p.Title)
 		m.MarkAllDirty()
@@ -1636,7 +1718,7 @@ func (m *OS) NavigatorNewItem(kind string) tea.Cmd {
 	rows := m.navigatorRows()
 	l := m.navActiveList()
 	var sess navSession
-	var ws int = 1
+	ws := 1
 	if l.Cursor >= 0 && l.Cursor < len(rows) {
 		r := rows[l.Cursor]
 		sess = m.navigator.sessions[r.Session]

@@ -31,6 +31,10 @@ type PanesConfig struct {
 	// CommanderExpandAll overrides NavigatorExpandAll specifically for Pane Commander
 	// mode. When unset (nil), Pane Commander defaults to expanding all sessions (true).
 	CommanderExpandAll *bool `toml:"commander_expand_all"`
+	// CommanderConfirmClose asks for confirmation before closing a session
+	// (or a pane, honoring appearance.confirm_close) in Pane Commander mode.
+	// When unset (nil), defaults to true.
+	CommanderConfirmClose *bool `toml:"commander_confirm_close"`
 	// DragAndDrop turns on drag and drop between panes over the kitty drag
 	// and drop protocol (OSC 72): a program that speaks it, such as yazi,
 	// can drag files to another pane, and a pane whose program does not
