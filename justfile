@@ -468,6 +468,11 @@ check *args:
 [group('check')]
 ci: fmt-check tidy-check lint test size
 
+# Extract a clean zero-pollution PR branch directly from upstream/main
+[group('pr')]
+pr name source="":
+    {{ quote(root / "scripts/extract-pr.sh") }} {{ quote(name) }} {{ quote(source) }}
+
 # ---------------------------------------------------------------- clean
 
 # Stop scratch daemons, remove build output and scratch dirs
